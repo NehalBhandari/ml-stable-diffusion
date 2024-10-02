@@ -199,9 +199,11 @@ class CrossAttnUpBlock2D(nn.Module):
 
     def forward(self,
                 hidden_states,
-                res_hidden_states_tuple,
+                down_block_res_samples,
                 temb=None,
                 encoder_hidden_states=None):
+        res_hidden_states_tuple = down_block_res_samples[-len(self.resnets):]
+        down_block_res_samples = down_block_res_samples[:-len(self.resnets)]
         for resnet, attn in zip(self.resnets, self.attentions):
             res_hidden_states = res_hidden_states_tuple[-1]
             res_hidden_states_tuple = res_hidden_states_tuple[:-1]
@@ -215,7 +217,7 @@ class CrossAttnUpBlock2D(nn.Module):
             for upsampler in self.upsamplers:
                 hidden_states = upsampler(hidden_states)
 
-        return hidden_states
+        return hidden_states, down_block_res_samples
 
 
 class UpBlock2D(nn.Module):
@@ -256,7 +258,9 @@ class UpBlock2D(nn.Module):
         if add_upsample:
             self.upsamplers = nn.ModuleList([Upsample2D(out_channels)])
 
-    def forward(self, hidden_states, res_hidden_states_tuple, temb=None):
+    def forward(self, hidden_states, down_block_res_samples, temb=None, encoder_hidden_states=None):
+        res_hidden_states_tuple = down_block_res_samples[-len(self.resnets):]
+        down_block_res_samples = down_block_res_samples[:-len(self.resnets)]
         for resnet in self.resnets:
             res_hidden_states = res_hidden_states_tuple[-1]
             res_hidden_states_tuple = res_hidden_states_tuple[:-1]
@@ -269,7 +273,7 @@ class UpBlock2D(nn.Module):
             for upsampler in self.upsamplers:
                 hidden_states = upsampler(hidden_states)
 
-        return hidden_states
+        return hidden_states, down_block_res_samples
 
 
 class CrossAttnDownBlock2D(nn.Module):
@@ -326,7 +330,7 @@ class CrossAttnDownBlock2D(nn.Module):
         else:
             self.downsamplers = None
 
-    def forward(self, hidden_states, temb=None, encoder_hidden_states=None):
+    def forward(self, hidden_states, down_block_res_samples, temb=None, encoder_hidden_states=None):
         output_states = ()
 
         for resnet, attn in zip(self.resnets, self.attentions):
@@ -340,7 +344,8 @@ class CrossAttnDownBlock2D(nn.Module):
 
             output_states += (hidden_states, )
 
-        return hidden_states, output_states
+        down_block_res_samples += output_states
+        return hidden_states, down_block_res_samples
 
 
 class DownBlock2D(nn.Module):
@@ -379,7 +384,7 @@ class DownBlock2D(nn.Module):
         else:
             self.downsamplers = None
 
-    def forward(self, hidden_states, temb=None):
+    def forward(self, hidden_states, down_block_res_samples, temb=None, encoder_hidden_states=None):
         output_states = ()
 
         for resnet in self.resnets:
@@ -392,8 +397,8 @@ class DownBlock2D(nn.Module):
 
             output_states = output_states + (hidden_states,)
 
-
-        return hidden_states, output_states
+        down_block_res_samples += output_states
+        return hidden_states, down_block_res_samples
 
 
 class ResnetBlock2D(nn.Module):
@@ -779,13 +784,13 @@ class UNetMidBlock2DCrossAttn(nn.Module):
         self.attentions = nn.ModuleList(attentions)
         self.resnets = nn.ModuleList(resnets)
 
-    def forward(self, hidden_states, temb=None, encoder_hidden_states=None):
+    def forward(self, hidden_states, down_block_res_samples, temb=None, encoder_hidden_states=None):
         hidden_states = self.resnets[0](hidden_states, temb)
         for attn, resnet in zip(self.attentions, self.resnets[1:]):
             hidden_states = attn(hidden_states, encoder_hidden_states)
             hidden_states = resnet(hidden_states, temb)
 
-        return hidden_states
+        return hidden_states, down_block_res_samples
 
 
 class UNet2DConditionModel(ModelMixin, ConfigMixin):
@@ -1085,20 +1090,13 @@ class UNet2DConditionModelXL(UNet2DConditionModel):
         sample = self.conv_in(sample)
 
         # 3. down
-        down_block_res_samples = (sample, )
-        for downsample_block in self.down_blocks:
-            if hasattr(
-                    downsample_block,
-                    "attentions") and downsample_block.attentions is not None:
-                sample, res_samples = downsample_block(
-                    hidden_states=sample,
-                    temb=emb,
-                    encoder_hidden_states=encoder_hidden_states)
-            else:
-                sample, res_samples = downsample_block(hidden_states=sample,
-                                                       temb=emb)
-
-            down_block_res_samples += res_samples
+        down_block_res_samples = (sample,)
+        for down_block_attention in self.down_blocks:
+            sample, down_block_res_samples = down_block_attention(
+                sample,
+                down_block_res_samples,
+                temb=emb,
+                encoder_hidden_states=encoder_hidden_states)
 
         if additional_residuals:
             new_down_block_res_samples = ()
@@ -1108,31 +1106,23 @@ class UNet2DConditionModelXL(UNet2DConditionModel):
             down_block_res_samples = new_down_block_res_samples
 
         # 4. mid
-        sample = self.mid_block(sample,
-                                emb,
-                                encoder_hidden_states=encoder_hidden_states)
+        sample, down_block_res_samples = self.mid_block(
+            sample,
+            down_block_res_samples,
+            temb=emb,
+            encoder_hidden_states=encoder_hidden_states)
         
         if additional_residuals:
             sample = sample + additional_residuals[-1]
 
         # 5. up
         for upsample_block in self.up_blocks:
-            res_samples = down_block_res_samples[-len(upsample_block.resnets):]
-            down_block_res_samples = down_block_res_samples[:-len(
-                upsample_block.resnets)]
-
-            if hasattr(upsample_block,
-                       "attentions") and upsample_block.attentions is not None:
-                sample = upsample_block(
-                    hidden_states=sample,
-                    temb=emb,
-                    res_hidden_states_tuple=res_samples,
-                    encoder_hidden_states=encoder_hidden_states,
-                )
-            else:
-                sample = upsample_block(hidden_states=sample,
-                                        temb=emb,
-                                        res_hidden_states_tuple=res_samples)
+            sample, down_block_res_samples = upsample_block(
+                sample,
+                down_block_res_samples,
+                temb=emb,
+                encoder_hidden_states=encoder_hidden_states,
+            )
 
         # 6. post-process
         sample = self.conv_norm_out(sample)
