@@ -306,11 +306,11 @@ def main(args):
             q_pipe, _ = prepare_pipe(ref_pipe, quantized_unet)
             test_out = run_pipe(q_pipe)
 
-            psnr = [float(f"{compute_psnr(r, t):.1f}") for r, t in zip(ref_out, test_out)]
-            logger.info(f"PSNR: {psnr}")
-            avg_psnr = sum(psnr) / len(psnr)
-            logger.info(f"AVG PSNR: {avg_psnr}")
-            results[module_type][module_name] = avg_psnr
+            mse = [torch.nn.functional.mse_loss(r, t) for r, t in zip(ref_out, test_out)]
+            logger.info(f"MSE: {mse}")
+            avg_mse = sum(mse) / len(mse)
+            logger.info(f"AVG MSE: {avg_mse}")
+            results[module_type][module_name] = avg_mse
 
             del quantized_unet
             del q_pipe
@@ -354,10 +354,11 @@ def main(args):
         q_pipe, handle = prepare_pipe(ref_pipe, quantized_unet)
         test_out = run_pipe(q_pipe)
 
-        psnr = [float(f"{compute_psnr(r, t):.1f}") for r, t in zip(ref_out, test_out)]
-        logger.info(f"PSNR: {psnr}")
-        avg_psnr = sum(psnr) / len(psnr)
-        logger.info(f"AVG PSNR: {avg_psnr}")
+        mse = [torch.nn.functional.mse_loss(r, t) for r, t in zip(ref_out, test_out)]
+        # psnr = [float(f"{compute_psnr(r, t):.1f}") for r, t in zip(ref_out, test_out)]
+        logger.info(f"MSE: {mse}")
+        avg_mse = sum(mse) / len(mse)
+        logger.info(f"AVG MSE: {avg_mse}")
 
         handle.remove()
         quantized_unet.to('cpu')
