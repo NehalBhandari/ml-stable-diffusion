@@ -306,7 +306,7 @@ def main(args):
             q_pipe, _ = prepare_pipe(ref_pipe, quantized_unet)
             test_out = run_pipe(q_pipe)
 
-            mse = [torch.nn.functional.mse_loss(r, t) for r, t in zip(ref_out, test_out)]
+            mse = [np.square(r - t).mean() for r, t in zip(ref_out, test_out)]
             logger.info(f"MSE: {mse}")
             avg_mse = sum(mse) / len(mse)
             logger.info(f"AVG MSE: {avg_mse}")
@@ -354,7 +354,7 @@ def main(args):
         q_pipe, handle = prepare_pipe(ref_pipe, quantized_unet)
         test_out = run_pipe(q_pipe)
 
-        mse = [torch.nn.functional.mse_loss(r, t) for r, t in zip(ref_out, test_out)]
+        mse = [np.square(r - t).mean() for r, t in zip(ref_out, test_out)]
         # psnr = [float(f"{compute_psnr(r, t):.1f}") for r, t in zip(ref_out, test_out)]
         logger.info(f"MSE: {mse}")
         avg_mse = sum(mse) / len(mse)
