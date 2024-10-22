@@ -273,7 +273,7 @@ def main(args):
 
     # Setup artifact file paths
     os.makedirs(args.o, exist_ok=True)
-    recipe_json_path = os.path.join(args.o, f"{args.model_version.replace('/', '_')}_quantization_recipe.json")
+    recipe_json_path = os.path.join(args.o, f"{args.model_version.replace('/', '_')}_quantization_recipe-mse.json")
     calibration_dir = os.path.join(args.o, f"calibration_data_{args.model_version.replace('/', '_')}")
 
     # Generate calibration data 
