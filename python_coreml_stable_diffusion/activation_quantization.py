@@ -327,8 +327,8 @@ def main(args):
         with open(recipe_json_path, "r") as f:
             results = json.load(f)
 
-        sorted_conv_layers = [layer for layer, _ in sorted(results['conv'].items(), key=lambda item: -item[1])]
-        sorted_einsum_layers = [layer for layer, _ in sorted(results['einsum'].items(), key=lambda item: -item[1])]
+        sorted_conv_layers = [layer for layer, _ in sorted(results['conv'].items(), key=lambda item: item[1])]
+        sorted_einsum_layers = [layer for layer, _ in sorted(results['einsum'].items(), key=lambda item: item[1])]
 
         skipped_conv =  set(sorted_conv_layers[args.num_conv:])
         skipped_einsum = set(sorted_einsum_layers[args.num_einsum:])
